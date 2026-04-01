@@ -26,7 +26,14 @@ def require_env(name: str) -> str:
     return value
 
 
-def github_request(method: str, url: str, token: str, params: dict | None = None) -> tuple[int, str]:
+def github_request(
+    method: str,
+    url: str,
+    token: str,
+    params: dict | None = None,
+    max_retries: int = 3,
+    retry_backoff_seconds: float = 1.0,
+) -> tuple[int, str]:
     if params:
         query = urllib.parse.urlencode(params)
         separator = "&" if "?" in url else "?"
@@ -43,13 +50,26 @@ def github_request(method: str, url: str, token: str, params: dict | None = None
         },
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, body
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        return exc.code, body
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read().decode("utf-8")
+                return resp.status, body
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            if exc.code in (429, 500, 502, 503, 504) and attempt < max_retries:
+                time.sleep(retry_backoff_seconds * (2**attempt))
+                continue
+            return exc.code, body
+        except urllib.error.URLError as exc:
+            if attempt < max_retries:
+                time.sleep(retry_backoff_seconds * (2**attempt))
+                continue
+            print(f"Network request failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    # Unreachable due to returns in the loop, kept to satisfy type checkers.
+    raise RuntimeError("Exceeded retry loop unexpectedly")
 
 
 def iter_org_repos(org: str, token: str) -> Iterable[dict]:
@@ -96,6 +116,10 @@ def main() -> None:
     org = os.getenv("TARGET_ORG", "ZJU-LLM-Safety")
     sleep_seconds = float(os.getenv("REQUEST_SLEEP_SECONDS", "0.2"))
 
+    if sleep_seconds < 0:
+        print("REQUEST_SLEEP_SECONDS must be >= 0", file=sys.stderr)
+        sys.exit(1)
+
     total = 0
     newly_starred = 0
 
@@ -107,16 +131,18 @@ def main() -> None:
 
         if is_starred(owner, name, token):
             print(f"Already starred: {full_name}")
-            continue
+        else:
+            ok = star_repo(owner, name, token)
+            if not ok:
+                print(f"Failed to star: {full_name}", file=sys.stderr)
+                sys.exit(1)
+            newly_starred += 1
+            print(f"Starred: {full_name}")
 
-        ok = star_repo(owner, name, token)
-        if not ok:
-            print(f"Failed to star: {full_name}", file=sys.stderr)
-            sys.exit(1)
-
-        newly_starred += 1
-        print(f"Starred: {full_name}")
-        time.sleep(sleep_seconds)
+        # Throttle every iteration (not only successful stars) to avoid bursty traffic
+        # when most repositories are already starred.
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
     print(f"Done. Checked {total} repos in '{org}', newly starred {newly_starred} repos.")
 
