@@ -1,0 +1,24 @@
+name: Auto Star ZJU-LLM-Safety
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  auto-star:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run auto-star
+        env:
+          GITHUB_TOKEN: ${{ secrets.AUTO_STAR_TOKEN }}
+          TARGET_ORG: ZJU-LLM-Safety
+        run: python scripts/auto_star.py
