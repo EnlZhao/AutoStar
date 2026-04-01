@@ -6,8 +6,8 @@
 
 ## 使用方式（推荐：GitHub Actions）
 
-1. 在你的仓库 `Settings -> Secrets and variables -> Actions` 中新增密钥：
-   - `AUTO_STAR_TOKEN`：你的 GitHub Personal Access Token（需要有给公开仓库点 star 的权限）
+1. 在你的仓库 `Settings -> Secrets and variables -> Actions` 中新增 Secret：
+   - `AUTO_STAR_TOKEN`：你的 GitHub Personal Access Token（classic 就行，把 public repo 勾选上）
 2. 确保仓库里有以下文件：
    - `.github/workflows/auto-star.yml`
    - `scripts/auto_star.py`
